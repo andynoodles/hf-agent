@@ -104,7 +104,7 @@ def _openai_tools_payload(tools: list[Tool]) -> list[dict] | None:
 
 
 async def _stream_openai(
-    model: str, history: list[Message], tools: list[Tool]
+    model: str, history: list[Message], tools: list[Tool], allow_tools: bool
 ) -> AsyncIterator[StreamEvent]:
     from openai import AsyncOpenAI
 
@@ -118,8 +118,14 @@ async def _stream_openai(
         "stream": True,
     }
     payload = _openai_tools_payload(tools)
-    if payload:
+    if payload and allow_tools:
         kwargs["tools"] = payload
+    elif payload and not allow_tools:
+        # Tools registered but caller wants a text-only turn (used to break
+        # tool-call dead loops). Pass tools so the schema validates against
+        # any prior tool messages, but forbid new calls.
+        kwargs["tools"] = payload
+        kwargs["tool_choice"] = "none"
 
     stream = await client.chat.completions.create(**kwargs)
 
@@ -211,6 +217,26 @@ def _gemini_system_instruction(history: list[Message]) -> str | None:
     return None
 
 
+# Gemini's FunctionDeclaration schema is a subset of OpenAPI; these keys
+# are tolerated by OpenAI but cause Gemini to reject the whole tool set.
+_GEMINI_UNSUPPORTED_SCHEMA_KEYS = frozenset(
+    {"additionalProperties", "$schema", "default", "examples", "exclusiveMinimum",
+     "exclusiveMaximum", "patternProperties", "definitions", "$ref", "$defs"}
+)
+
+
+def _scrub_for_gemini(node):
+    if isinstance(node, dict):
+        return {
+            k: _scrub_for_gemini(v)
+            for k, v in node.items()
+            if k not in _GEMINI_UNSUPPORTED_SCHEMA_KEYS
+        }
+    if isinstance(node, list):
+        return [_scrub_for_gemini(x) for x in node]
+    return node
+
+
 def _gemini_tools_payload(tools: list[Tool]):
     from google.genai import types
 
@@ -222,7 +248,7 @@ def _gemini_tools_payload(tools: list[Tool]):
                 types.FunctionDeclaration(
                     name=t.name,
                     description=t.description,
-                    parameters=t.parameters,
+                    parameters=_scrub_for_gemini(t.parameters),
                 )
                 for t in tools
             ]
@@ -231,16 +257,32 @@ def _gemini_tools_payload(tools: list[Tool]):
 
 
 async def _stream_gemini(
-    model: str, history: list[Message], tools: list[Tool]
+    model: str, history: list[Message], tools: list[Tool], allow_tools: bool
 ) -> AsyncIterator[StreamEvent]:
     from google import genai
     from google.genai import types
 
     client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
+    tool_config = None
+    if not allow_tools:
+        # Force a text-only turn — used by the harness to break tool-call
+        # dead loops. The model still sees the tool schema so prior
+        # function_response parts validate, but cannot emit new calls.
+        tool_config = types.ToolConfig(
+            function_calling_config=types.FunctionCallingConfig(mode="NONE")
+        )
+
     config = types.GenerateContentConfig(
         system_instruction=_gemini_system_instruction(history),
         tools=_gemini_tools_payload(tools),
+        tool_config=tool_config,
+        # Higher-entropy sampling. Gemini collapses to deterministic tool
+        # spam at low temperature — these settings break it out of
+        # repeated identical calls without sacrificing too much quality.
+        temperature=1.0,
+        top_p=0.95,
+        top_k=64,
         # Enable when using Gemini3 models
         # thinking_config=types.ThinkingConfig(thinking_level="medium"),
     )
@@ -279,10 +321,17 @@ def stream(
     choice: ModelChoice,
     history: list[Message],
     tools: list[Tool] | None = None,
+    allow_tools: bool = True,
 ) -> AsyncIterator[StreamEvent]:
+    """Stream a provider response.
+
+    `allow_tools=False` forces the model to respond with text only — the
+    harness uses this to break tool-call dead loops detected by the
+    repetition guard.
+    """
     tools = tools or []
     if choice.provider == "openai":
-        return _stream_openai(choice.model, history, tools)
+        return _stream_openai(choice.model, history, tools, allow_tools)
     if choice.provider == "gemini":
-        return _stream_gemini(choice.model, history, tools)
+        return _stream_gemini(choice.model, history, tools, allow_tools)
     raise ValueError(f"Unknown provider: {choice.provider}")

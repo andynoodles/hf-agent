@@ -10,10 +10,10 @@ from textual.containers import VerticalScroll
 from textual.suggester import SuggestFromList
 from textual.widgets import Footer, Header, Input, Static
 
-from . import providers, tools
+from . import doom_loop, providers, tools
 from .approval import ApprovalDecision, ApprovalScreen
 from .command_input import CommandInput
-from .commands import COMMAND_NAMES, SLASH_COMMANDS, matching
+from .commands import command_names, matching, slash_commands
 from .config import ModelChoice, available_models
 from .confirm import ConfirmScreen
 from .message_view import MessageView
@@ -31,8 +31,17 @@ class _AppToolContext:
     async def confirm(self, title: str, body: str) -> bool:
         return await self._app.push_screen_wait(ConfirmScreen(title, body))
 
-_MAX_TOOL_ITERATIONS = 8  # safety cap on consecutive tool-call rounds
+_MAX_TOOL_ITERATIONS = 8  # safety cap on consecutive tool-call rounds for normal turns
+_LOOP_MAX_ITERATIONS = 100  # cap when the user invokes /loop autonomous mode
 _TOOL_OUTPUT_PREVIEW_CHARS = 600
+
+_LOOP_SYSTEM_PROMPT = (
+    "You are now in AUTONOMOUS LOOP MODE. Pursue the user's goal end-to-end "
+    "using the available tools. Take initiative: plan, execute, verify, and "
+    "iterate without waiting for confirmation. When the goal is genuinely "
+    "complete (or you hit a blocker you cannot resolve), stop calling tools "
+    "and write a concise final report. Do not loop on the same failing call."
+)
 
 
 class ChatApp(App):
@@ -68,6 +77,9 @@ class ChatApp(App):
         # When True, tools that mark `requires_approval=True` run without
         # an approval prompt. Toggled by /auto.
         self._auto_approve = False
+        # When True, the next streaming turn runs in autonomous-loop mode:
+        # higher iteration cap, forced auto-approve, doom-loop guard.
+        self._loop_mode = False
 
     # --- layout ----------------------------------------------------------
 
@@ -79,16 +91,19 @@ class ChatApp(App):
         yield CommandInput(
             placeholder="Type a message or /  (Tab to complete commands)",
             id="prompt-input",
-            suggester=SuggestFromList(COMMAND_NAMES, case_sensitive=False),
+            suggester=SuggestFromList(command_names(), case_sensitive=False),
         )
         yield Footer()
 
     def on_mount(self) -> None:
         self.title = "TUI Chat"
         self._refresh_status()
+        registered = ", ".join(f"/{t.name}" for t in tools.all_tools()) or "(none)"
         self._log_system(
-            "Welcome! Use [b]/models[/b] to switch model, "
-            "[b]/clear[/b] to reset, [b]/quit[/b] to exit."
+            f"Welcome! Tools available: {registered}. Type [b]/<tool_name> "
+            "<request>[/b] to nudge the model toward a specific tool. Use "
+            "[b]/loop <goal>[/b] for autonomous mode, [b]/models[/b] to "
+            "switch model, [b]/help[/b] for all commands."
         )
         if not self.current_model:
             self._log_system(
@@ -163,10 +178,22 @@ class ChatApp(App):
     # --- slash commands --------------------------------------------------
 
     def _handle_command(self, text: str) -> None:
-        cmd = text.split(maxsplit=1)[0].lower()
-        if cmd not in SLASH_COMMANDS:
+        parts = text.split(maxsplit=1)
+        cmd = parts[0].lower()
+        rest = parts[1] if len(parts) > 1 else ""
+
+        commands = slash_commands()
+        if cmd not in commands:
             self._log_system(f"[red]Unknown command:[/] {escape(cmd)}")
             return
+
+        # `/<tool_name> [request]` doesn't toggle anything — it sends a
+        # nudge prompt asking the model to use that specific tool.
+        tool_name = cmd[1:]
+        if tools.get_tool(tool_name) is not None:
+            self._nudge_tool(tool_name, rest.strip())
+            return
+
         if cmd == "/quit":
             self.exit()
         elif cmd == "/clear":
@@ -175,12 +202,81 @@ class ChatApp(App):
             self._select_model()
         elif cmd == "/auto":
             self._toggle_auto_approve()
+        elif cmd == "/tool":
+            self._list_tools()
+        elif cmd == "/loop":
+            self._start_loop(rest.strip())
         elif cmd == "/help":
             lines = [
                 f"[b]{name}[/] [dim]— {desc}[/]"
-                for name, desc in SLASH_COMMANDS.items()
+                for name, desc in commands.items()
             ]
             self._log_system("Commands:  " + "   ".join(lines))
+
+    def _list_tools(self) -> None:
+        specs = tools.all_tools()
+        if not specs:
+            self._log_system("[dim]No tools registered.[/]")
+            return
+        lines = [f"[b]/{t.name}[/] [dim]— {t.description.splitlines()[0][:120]}[/]" for t in specs]
+        self._log_system("Available tools:\n" + "\n".join(lines))
+
+    def _nudge_tool(self, name: str, request: str) -> None:
+        if self._streaming:
+            self._log_system("[yellow]Already streaming, please wait...[/]")
+            return
+        if not self.current_model:
+            self._log_system("[red]No model selected. Use /models[/]")
+            return
+
+        if request:
+            prompt = f"Use the `{name}` tool to handle this request: {request}"
+        else:
+            prompt = f"Use the `{name}` tool to address my next request."
+
+        self.history.append({"role": "user", "content": prompt})
+
+        chat = self.query_one("#chat", VerticalScroll)
+        self.run_worker(self._mount_user_bubble(chat, prompt), exclusive=False)
+        self._stream_response()
+
+    async def _mount_user_bubble(self, chat: VerticalScroll, text: str) -> None:
+        view = MessageView("user")
+        await chat.mount(view)
+        view.set_text(text)
+        chat.scroll_end(animate=False)
+
+    def _start_loop(self, goal: str) -> None:
+        if not goal:
+            self._log_system(
+                "[yellow]Usage:[/] [b]/loop <goal>[/] — describe what the "
+                "agent should pursue autonomously."
+            )
+            return
+        if self._streaming:
+            self._log_system("[yellow]Already streaming, please wait...[/]")
+            return
+        if not self.current_model:
+            self._log_system("[red]No model selected. Use /models[/]")
+            return
+
+        self.history.append({"role": "system", "content": _LOOP_SYSTEM_PROMPT})
+        self.history.append({"role": "user", "content": f"GOAL: {goal}"})
+
+        chat = self.query_one("#chat", VerticalScroll)
+        self.run_worker(self._mount_loop_banner(chat, goal), exclusive=False)
+
+        self._loop_mode = True
+        self._stream_response()
+
+    async def _mount_loop_banner(self, chat: VerticalScroll, goal: str) -> None:
+        view = MessageView("system")
+        await chat.mount(view)
+        view.set_text(
+            f"[b yellow]▶ loop mode[/] (cap {_LOOP_MAX_ITERATIONS}, auto-approve forced)\n"
+            f"[dim]goal:[/] {escape(goal)}"
+        )
+        chat.scroll_end(animate=False)
 
     async def action_clear_chat(self) -> None:
         await self._clear_async()
@@ -228,13 +324,39 @@ class ChatApp(App):
     async def _stream_response(self) -> None:
         assert self.current_model is not None
         self._streaming = True
+        in_loop = self._loop_mode
+        # /loop forces auto-approve while it runs so tool calls don't stall
+        # waiting on a human; we restore the prior setting on exit.
+        prior_auto = self._auto_approve
+        if in_loop:
+            self._auto_approve = True
         self._set_status_streaming(True)
 
         chat = self.query_one("#chat", VerticalScroll)
         active_tools = tools.all_tools()
+        cap = _LOOP_MAX_ITERATIONS if in_loop else _MAX_TOOL_ITERATIONS
+
+        # When True, the next LLM call is forced to text-only (no tool
+        # schema offered). Set when the doom-loop guard fires so the
+        # model can't keep emitting the same stuck call.
+        force_text_only = False
 
         try:
-            for _ in range(_MAX_TOOL_ITERATIONS):
+            for _ in range(cap):
+                # Doom-loop guard: if recent tool calls show a stuck pattern,
+                # we *both* inject a corrective system message and force the
+                # next call to be text-only. The text-only force is the real
+                # fix — corrective messages alone don't reliably stop Gemini.
+                nudge = doom_loop.check(self.history)
+                if nudge:
+                    self.history.append({"role": "user", "content": nudge})
+                    force_text_only = True
+                    warn = MessageView("system")
+                    await chat.mount(warn)
+                    warn.set_text(
+                        "[yellow]⚠ repetition guard fired — forcing text-only response[/]"
+                    )
+                    chat.scroll_end(animate=False)
                 msg = MessageView("assistant", self.current_model.model)
                 await chat.mount(msg)
                 chat.scroll_end(animate=False)
@@ -247,7 +369,10 @@ class ChatApp(App):
 
                 try:
                     async for event in providers.stream(
-                        self.current_model, self.history, active_tools
+                        self.current_model,
+                        self.history,
+                        active_tools,
+                        allow_tools=not force_text_only,
                     ):
                         spinner.stop()  # idempotent; first event wins
                         if isinstance(event, TextDelta):
@@ -279,13 +404,26 @@ class ChatApp(App):
                 if not tool_calls:
                     break  # plain text turn — nothing more to do
 
+                if force_text_only:
+                    # The model emitted tool calls despite tool_choice=none.
+                    # Drop them and bail rather than letting the loop spin.
+                    self.history[-1].pop("tool_calls", None)
+                    self._log_system(
+                        "[yellow]Stopped: model attempted tool calls during a "
+                        "forced text-only turn — bailing to break the loop.[/]"
+                    )
+                    break
+
                 # Execute each tool, surface it in the chat, append to history.
                 for tc in tool_calls:
                     await self._run_tool_call(tc, chat)
+                # Reset the guard once the model has produced a successful
+                # tool round on its own — otherwise a single stuck patch
+                # would silence tools for the rest of the turn.
+                force_text_only = False
             else:
                 self._log_system(
-                    f"[yellow]Stopped: tool loop hit cap of "
-                    f"{_MAX_TOOL_ITERATIONS} rounds.[/]"
+                    f"[yellow]Stopped: tool loop hit cap of {cap} rounds.[/]"
                 )
         except Exception as e:
             err = MessageView("system")
@@ -296,6 +434,13 @@ class ChatApp(App):
             chat.scroll_end(animate=False)
         finally:
             self._streaming = False
+            if in_loop:
+                self._loop_mode = False
+                self._auto_approve = prior_auto
+                end = MessageView("system")
+                await chat.mount(end)
+                end.set_text("[dim]▣ loop mode ended[/]")
+                chat.scroll_end(animate=False)
             self._set_status_streaming(False)
 
     async def _run_tool_call(self, tc: ToolCall, chat: VerticalScroll) -> None:
@@ -382,6 +527,8 @@ class ChatApp(App):
             status.update(" [red]No model[/red]")
             return
         parts = [f" Model: [b]{self.current_model.label}[/b]"]
+        if self._loop_mode:
+            parts.append("[yellow]◌ loop[/]")
         if self._auto_approve:
             parts.append("[yellow]auto-approve[/]")
         else:

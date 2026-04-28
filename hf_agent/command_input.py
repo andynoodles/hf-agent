@@ -3,7 +3,17 @@ from __future__ import annotations
 from textual.binding import Binding
 from textual.widgets import Input
 
-from .commands import COMMAND_NAMES, longest_common_prefix, matching
+from .commands import command_names, matching
+
+
+def _longest_common_prefix(strings: list[str]) -> str:
+    if not strings:
+        return ""
+    s1, s2 = min(strings), max(strings)
+    for i, c in enumerate(s1):
+        if c != s2[i]:
+            return s1[:i]
+    return s1
 
 
 class CommandInput(Input):
@@ -29,7 +39,7 @@ class CommandInput(Input):
         if not names:
             return
 
-        target = names[0] if len(names) == 1 else longest_common_prefix(names)
+        target = names[0] if len(names) == 1 else _longest_common_prefix(names)
         if target and target != value:
             self.value = target
             self.cursor_position = len(target)
@@ -43,4 +53,4 @@ class CommandInput(Input):
 
 
 # Keep the names list importable from one place.
-__all__ = ["CommandInput", "COMMAND_NAMES"]
+__all__ = ["CommandInput", "command_names"]

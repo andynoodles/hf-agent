@@ -1,17 +1,31 @@
 from __future__ import annotations
 
-# Single source of truth for slash commands. The app uses this for both
-# the typed-command dispatcher and the autocomplete UI, so the two never
-# drift apart.
-SLASH_COMMANDS: dict[str, str] = {
+from . import tools
+
+# Static slash commands. Each registered tool also appears as a dynamic
+# `/<tool_name>` toggle (see `slash_commands()` below) so users can opt
+# tools into the session one at a time.
+_BASE_COMMANDS: dict[str, str] = {
     "/models": "switch model",
+    "/tool": "list available tools",
+    "/loop": "/loop <goal> — run autonomous research/iteration loop",
     "/auto": "toggle auto-approve for tool calls",
     "/clear": "reset history",
     "/help": "show commands",
     "/quit": "exit",
 }
 
-COMMAND_NAMES: tuple[str, ...] = tuple(SLASH_COMMANDS.keys())
+
+def slash_commands() -> dict[str, str]:
+    """Static commands plus a `/<tool_name>` toggle for each registered tool."""
+    out = dict(_BASE_COMMANDS)
+    for spec in tools.all_tools():
+        out[f"/{spec.name}"] = f"/{spec.name} <request> — nudge model to use the '{spec.name}' tool"
+    return out
+
+
+def command_names() -> tuple[str, ...]:
+    return tuple(slash_commands().keys())
 
 
 def matching(prefix: str) -> list[tuple[str, str]]:
@@ -20,15 +34,4 @@ def matching(prefix: str) -> list[tuple[str, str]]:
     if not prefix.startswith("/"):
         return []
     p = prefix.lower()
-    return [(k, v) for k, v in SLASH_COMMANDS.items() if k.startswith(p)]
-
-
-def longest_common_prefix(strings: list[str]) -> str:
-    if not strings:
-        return ""
-    s1 = min(strings)
-    s2 = max(strings)
-    for i, c in enumerate(s1):
-        if c != s2[i]:
-            return s1[:i]
-    return s1
+    return [(k, v) for k, v in slash_commands().items() if k.startswith(p)]

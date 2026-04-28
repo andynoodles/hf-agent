@@ -106,6 +106,12 @@ async def execute(name: str, arguments: dict[str, Any]) -> str:
 
 # Importing the modules below has the side effect of registering their
 # tools via the @tool decorator. Add new tool modules to `_BUILTIN_TOOLS`.
-_BUILTIN_TOOLS: tuple[str, ...] = ("terminal",)
+_BUILTIN_TOOLS: tuple[str, ...] = (
+    "terminal",
+    "web_search",
+    "http_get",
+    "hf_hub_search",
+    "hf_dataset_viewer",
+)
 for _name in _BUILTIN_TOOLS:
     importlib.import_module(f"{__name__}.{_name}")
