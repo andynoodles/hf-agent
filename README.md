@@ -26,18 +26,20 @@ uv run main.py
 
 `.env`:
 
-Gemini models are suggested for the best performance, it's tested more thoroughly than OpenAICompatibles.
-
 ```ini
-OPENAI_API_KEY=
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODEL=gpt-4o-mini
+# --- OpenAI (or any OpenAI-compatible endpoint, e.g. Ollama, vLLM, OpenRouter) ---
+OPENAI_API_KEY=paste-your-key-here
+# Default https://openrouter.ai/api/v1 ; change for compatible providers
+OPENAI_BASE_URL=https://openrouter.ai/api/v1
 
-GEMINI_API_KEY=
-GEMINI_MODEL=gemma-4-31b-it
-# GEMINI_MODELS=gemma-4-31b-it,gemma-4-26b-a4b-it,gemini-3.1-flash-lite-preview
+# Single model, or comma-separated list shown in /models
+OPENAI_MODELS=nvidia/nemotron-3-super-120b-a12b:free,openrouter/owl-alpha,poolside/laguna-m.1:free,qwen/qwen3-next-80b-a3b-instruct:free
 
-HF_TOKEN=                # optional — raises rate limits, unlocks gated datasets
+# --- Google Gemini ---
+GEMINI_API_KEY=paste-your-key-here
+GEMINI_MODEL=gemma-4-31b-it,gemma-4-26b-a4b-it,gemini-3.1-flash-lite-preview
+
+HF_TOKEN=paste-your-token-here  # optional — raises rate limits, unlocks gated datasets
 ```
 
 Either provider can be left blank; the app uses whichever keys are set.
