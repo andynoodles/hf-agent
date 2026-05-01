@@ -1,5 +1,7 @@
 # hf-agent
 
+![hf-agent splash screen](asset/welcome.png)
+
 A terminal agent that takes a natural-language question, picks a Hugging
 Face Hub or Datasets-Server endpoint, calls it for real, and answers
 from the response.
