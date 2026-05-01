@@ -11,6 +11,49 @@ Considered GitHub API, Wikidata SPARQL, Hugging Face. GitHub is one flat search 
 
 A useful answer often takes 2–4 chained calls across both surfaces, which is where naive prompt-to-query pipelines break. Most reads also work without auth.
 
+## System design
+
+```
+            ┌─────────────────┐    ┌─────────────────┐
+            │ TUI  (app.py)   │    │ Headless        │
+            │ Textual UI      │    │ (headless.py)   │
+            └────────┬────────┘    └────────┬────────┘
+                     └────────────┬─────────┘
+                                  ▼
+                    ┌──────────────────────────┐
+                    │  Tool loop               │
+                    │  stream ▸ accumulate ▸   │
+                    │  execute ▸ append tool   │
+                    │  msgs ▸ re-stream        │
+                    │  cap: 8 (TUI) / 100 (/loop)│
+                    └────┬───────────────┬─────┘
+                         │               │
+            ┌────────────▼──┐       ┌────▼───────────────┐
+            │ providers.py  │       │ tools/             │
+            │  · OpenAI     │       │  · hf_hub_search   │
+            │  · Gemini     │       │  · hf_dataset_view │
+            └───────┬───────┘       │  · web_search      │
+                    │               │  · http_get        │
+                    ▼               │  · terminal        │
+            ┌───────────────┐       └─────────┬──────────┘
+            │   LLM API     │                 │
+            │ (JSON-Schema  │                 ▼
+            │  tool calls)  │       ┌────────────────────┐
+            └───────────────┘       │ HF Hub  /api/*     │
+                                    │ HF Datasets Server │
+                                    │ DuckDuckGo / raw   │
+                                    └────────────────────┘
+
+evals/   (offline; scores generation, not live response)
+
+  cases.py ──► runner.py ──► provider (1-turn) ──► scorer.py ──► results/
+                  │                                    │
+              RPM throttle                       predicate DSL
+              5xx / 429 retry                    (any_of_shapes…)
+```
+
+Same tool loop drives both the TUI and headless paths; only message rendering differs. The eval harness reuses the agent's tool schemas but stops after the first `ToolCall` — no execution, no live HF traffic on the scoring path.
+
 ## Architecture decisions
 
 **Tools, not constrained decoding.** I support OpenAI and Gemini, which have different decoding APIs but both natively support JSON-Schema'd tool calls. Cost: I trust the provider to honour the schema. Upside: one decorator registers a tool for both providers.
