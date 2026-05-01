@@ -17,12 +17,16 @@ break/harden cycle, Part 2 multi-model eval and results — see
 Python 3.12+, [`uv`](https://github.com/astral-sh/uv).
 
 ```bash
+uv venv
+source .venv/bin/activate
 uv pip install -r requirements.txt
-cp .env.example .env   # add your API keys
+cp .env.example .env   # add your API keys and Model ids
 uv run main.py
 ```
 
 `.env`:
+
+Gemini models are suggested for the best performance, it's tested more thoroughly than OpenAICompatibles.
 
 ```ini
 OPENAI_API_KEY=

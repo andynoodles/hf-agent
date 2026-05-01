@@ -20,6 +20,7 @@ from .message_view import MessageView
 from .model_select import ModelSelectScreen
 from .providers import TextDelta, ToolCall
 from .spinner import Spinner
+from .splash import SplashScreen
 
 
 class _AppToolContext:
@@ -101,8 +102,13 @@ class ChatApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.title = "TUI Chat"
+        self.title = "hf-agent"
         self._refresh_status()
+        chat = self.query_one("#chat", VerticalScroll)
+        chat.mount(SplashScreen(on_done=self._show_welcome))
+        self.query_one("#prompt-input", Input).focus()
+
+    def _show_welcome(self) -> None:
         registered = ", ".join(f"/{t.name}" for t in tools.all_tools()) or "(none)"
         self._log_system(
             f"Welcome! Tools available: {registered}. Type [b]/<tool_name> "
@@ -115,7 +121,6 @@ class ChatApp(App):
                 "[red]No models configured.[/] "
                 "Set OPENAI_API_KEY/OPENAI_MODEL or GEMINI_API_KEY/GEMINI_MODEL in .env"
             )
-        self.query_one("#prompt-input", Input).focus()
 
     # --- helpers ---------------------------------------------------------
 
