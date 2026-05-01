@@ -1,0 +1,11 @@
+[
+  {
+    "model": "[gemini] gemini-3.1-flash-lite-preview",
+    "provider": "gemini",
+    "model_id": "gemini-3.1-flash-lite-preview",
+    "total": 20,
+    "passes": 19,
+    "accuracy": 0.95,
+    "elapsed_s": 376.2
+  }
+]

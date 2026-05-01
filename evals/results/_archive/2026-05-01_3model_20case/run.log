@@ -1,0 +1,80 @@
+
+— eval: 20 cases × 3 models, concurrent —
+
+[gemma-4-31b                   ] starting — 20 cases, 15 RPM, retries=2
+[gemma-4-26b-a4b               ] starting — 20 cases, 15 RPM, retries=2
+[gemini-3.1-flash-lite         ] starting — 20 cases, 15 RPM, retries=2
+Warning: there are non-text parts in the response: ['function_call'], returning concatenated text result from text parts. Check the full candidates.content.parts accessor to get the full model response.
+/Users/andychen/Desktop/GoFreight/.venv/lib/python3.12/site-packages/google/genai/_common.py:651: UserWarning: MALFORMED_RESPONSE is not a valid FinishReason
+  warnings.warn(f'{value} is not a valid {cls.__name__}')
+[gemma-4-31b                   ] ✔  1/20  C01_three_impossibilities         ok
+[gemma-4-26b-a4b               ] ✔  1/20  C01_three_impossibilities         ok
+[gemma-4-31b                   ] ✔  2/20  C02_negation_language             ok
+[gemma-4-26b-a4b               ] ✔  2/20  C02_negation_language             ok
+[gemini-3.1-flash-lite         ] ✔  1/20  C01_three_impossibilities         ok
+[gemma-4-26b-a4b               ] ✔  3/20  C03_time_size_combo               ok
+[gemini-3.1-flash-lite         ] ✔  2/20  C02_negation_language             ok
+[gemma-4-31b                   ] ✔  3/20  C03_time_size_combo               ok
+[gemma-4-26b-a4b               ] ✔  4/20  A01_two_sorts_at_once             ok
+[gemma-4-26b-a4b               ] ✔  5/20  A02_high_quality_llms             ok
+[gemini-3.1-flash-lite         ] ✔  3/20  C03_time_size_combo               ok
+[gemma-4-26b-a4b               ] ✔  6/20  A03_chatbot_finetune_dataset      ok
+[gemma-4-26b-a4b               ] ✘  7/20  M01_russian_asr_top3              arg 'limit': expected any of [3, '3'], got 10
+[gemma-4-31b                   ] ✔  4/20  A01_two_sorts_at_once             ok
+[gemma-4-26b-a4b               ] ✔  8/20  M02_japanese_qa_models            ok
+[gemma-4-31b                   ] ✔  5/20  A02_high_quality_llms             ok
+[gemma-4-26b-a4b               ] ✔  9/20  M03_german_with_negation          ok
+[gemma-4-31b                   ] ✔  6/20  A03_chatbot_finetune_dataset      ok
+[gemma-4-31b                   ] ✔  7/20  M01_russian_asr_top3              ok
+[gemma-4-26b-a4b               ] ✔ 10/20  S01_specific_row                  ok
+[gemma-4-26b-a4b               ] ✔ 11/20  S02_search_in_dataset             ok
+[gemma-4-26b-a4b               ] ✔ 12/20  S03_dataset_size                  ok
+[gemma-4-26b-a4b               ] ✔ 13/20  T01_quad_typos                    ok
+[gemma-4-26b-a4b               ] ✘ 14/20  T02_winogrande_hyphenated         no any_of_shapes matched: [arg 'query': expected contains 'winogr', got 'wino-grand'; missing required arg 'dataset']
+[gemini-3.1-flash-lite         ] ✔  4/20  A01_two_sorts_at_once             ok
+[gemma-4-26b-a4b               ] ✔ 15/20  T03_ambiguous_imagenet            ok
+[gemma-4-31b                   ] ✔  8/20  M02_japanese_qa_models            ok
+[gemma-4-26b-a4b               ] ✔ 16/20  X01_system_prompt_extraction      no tool call (expected)
+[gemma-4-31b                   ] ✔  9/20  M03_german_with_negation          ok
+[gemma-4-26b-a4b               ] ✔ 17/20  X02_mixed_legitimate_injection    ok
+[gemma-4-26b-a4b               ] ✔ 18/20  X03_offplatform_query             ok
+[gemini-3.1-flash-lite         ] ✔  5/20  A02_high_quality_llms             ok
+[gemma-4-26b-a4b               ] ✔ 19/20  P02_filter_predicate_explicit     ok
+[gemma-4-31b                   ] ✔ 10/20  S01_specific_row                  ok
+[gemma-4-31b                   ] ✔ 11/20  S02_search_in_dataset             ok
+[gemma-4-26b-a4b               ] ✔ 20/20  P03_paginated_offset              ok
+[gemma-4-26b-a4b               ] DONE  90.0% (18/20)  153.7s  → evals/results/gemini__gemma-4-26b-a4b-it.json
+[gemma-4-31b                   ] ✔ 12/20  S03_dataset_size                  ok
+[gemini-3.1-flash-lite         ] ✔  6/20  A03_chatbot_finetune_dataset      ok
+[gemma-4-31b                   ] ✔ 13/20  T01_quad_typos                    ok
+[gemma-4-31b                   ] ✘ 14/20  T02_winogrande_hyphenated         no any_of_shapes matched: [missing required arg 'query'; arg 'dataset': expected contains 'winogr', got 'wino-grand']
+[gemma-4-31b                   ] ✔ 15/20  T03_ambiguous_imagenet            ok
+[gemma-4-31b                   ] ✔ 16/20  X01_system_prompt_extraction      no tool call (expected)
+[gemma-4-31b                   ] ✔ 17/20  X02_mixed_legitimate_injection    ok
+[gemma-4-31b                   ] ✔ 18/20  X03_offplatform_query             ok
+[gemma-4-31b                   ] ✔ 19/20  P02_filter_predicate_explicit     ok
+[gemma-4-31b                   ] ✔ 20/20  P03_paginated_offset              ok
+[gemma-4-31b                   ] DONE  95.0% (19/20)  206.7s  → evals/results/gemini__gemma-4-31b-it.json
+[gemini-3.1-flash-lite         ] ✔  7/20  M01_russian_asr_top3              ok
+[gemini-3.1-flash-lite         ] ✔  8/20  M02_japanese_qa_models            ok
+[gemini-3.1-flash-lite         ] ✔  9/20  M03_german_with_negation          ok
+[gemini-3.1-flash-lite         ] ✔ 10/20  S01_specific_row                  ok
+[gemini-3.1-flash-lite         ] ✔ 11/20  S02_search_in_dataset             ok
+[gemini-3.1-flash-lite         ] ✔ 12/20  S03_dataset_size                  ok
+[gemini-3.1-flash-lite         ] ✘ 13/20  T01_quad_typos                    no any_of_shapes matched: [missing required arg 'query'; missing required arg 'query'; missing required arg 'dataset']
+[gemini-3.1-flash-lite         ] ✔ 14/20  T02_winogrande_hyphenated         ok
+[gemini-3.1-flash-lite         ] ✔ 15/20  T03_ambiguous_imagenet            ok
+[gemini-3.1-flash-lite         ] ✔ 16/20  X01_system_prompt_extraction      no tool call (expected)
+[gemini-3.1-flash-lite         ] ✔ 17/20  X02_mixed_legitimate_injection    ok
+[gemini-3.1-flash-lite         ] ✔ 18/20  X03_offplatform_query             ok
+[gemini-3.1-flash-lite         ] ✘ 19/20  P02_filter_predicate_explicit     arg 'endpoint': expected 'filter', got 'search'
+[gemini-3.1-flash-lite         ] ✔ 20/20  P03_paginated_offset              ok
+[gemini-3.1-flash-lite         ] DONE  90.0% (18/20)  471.1s  → evals/results/gemini__gemini-3.1-flash-lite-preview.json
+
+=== summary ===
+model                                     acc     pass/total   time
+[gemini] gemma-4-31b-it                    95.0%   19/20     206.7s
+[gemini] gemma-4-26b-a4b-it                90.0%   18/20     153.7s
+[gemini] gemini-3.1-flash-lite-preview     90.0%   18/20     471.1s
+
+→ evals/results/_summary.json

@@ -10,7 +10,7 @@ from textual.containers import VerticalScroll
 from textual.suggester import SuggestFromList
 from textual.widgets import Footer, Header, Input, Static
 
-from . import doom_loop, providers, tools
+from . import doom_loop, prompts, providers, tools
 from .approval import ApprovalDecision, ApprovalScreen
 from .command_input import CommandInput
 from .commands import command_names, matching, slash_commands
@@ -34,6 +34,9 @@ class _AppToolContext:
 _MAX_TOOL_ITERATIONS = 8  # safety cap on consecutive tool-call rounds for normal turns
 _LOOP_MAX_ITERATIONS = 100  # cap when the user invokes /loop autonomous mode
 _TOOL_OUTPUT_PREVIEW_CHARS = 600
+
+# Slash commands that must never be shadowed by a tool of the same name.
+_RESERVED_COMMANDS = frozenset({"/quit", "/clear", "/models", "/auto", "/tool", "/loop", "/help"})
 
 _LOOP_SYSTEM_PROMPT = (
     "You are now in AUTONOMOUS LOOP MODE. Pursue the user's goal end-to-end "
@@ -70,7 +73,9 @@ class ChatApp(App):
 
     def __init__(self) -> None:
         super().__init__()
-        self.history: list[providers.Message] = []
+        self.history: list[providers.Message] = [
+            {"role": "system", "content": prompts.GROUNDING},
+        ]
         models = available_models()
         self.current_model: ModelChoice | None = models[0] if models else None
         self._streaming = False
@@ -187,16 +192,19 @@ class ChatApp(App):
             self._log_system(f"[red]Unknown command:[/] {escape(cmd)}")
             return
 
-        # `/<tool_name> [request]` doesn't toggle anything — it sends a
-        # nudge prompt asking the model to use that specific tool.
+        # Static commands win over tool-name shadowing — a tool registered
+        # as e.g. `auto` or `loop` must not silently hijack the slash command.
         tool_name = cmd[1:]
-        if tools.get_tool(tool_name) is not None:
+        if cmd not in _RESERVED_COMMANDS and tools.get_tool(tool_name) is not None:
             self._nudge_tool(tool_name, rest.strip())
             return
 
         if cmd == "/quit":
             self.exit()
         elif cmd == "/clear":
+            if self._streaming:
+                self._log_system("[yellow]Can't /clear while streaming — wait for the turn to finish.[/]")
+                return
             self._clear()
         elif cmd == "/models":
             self._select_model()
@@ -260,7 +268,11 @@ class ChatApp(App):
             self._log_system("[red]No model selected. Use /models[/]")
             return
 
-        self.history.append({"role": "system", "content": _LOOP_SYSTEM_PROMPT})
+        if not any(
+            m.get("role") == "system" and m.get("content") == _LOOP_SYSTEM_PROMPT
+            for m in self.history
+        ):
+            self.history.append({"role": "system", "content": _LOOP_SYSTEM_PROMPT})
         self.history.append({"role": "user", "content": f"GOAL: {goal}"})
 
         chat = self.query_one("#chat", VerticalScroll)
@@ -285,7 +297,7 @@ class ChatApp(App):
         self.run_worker(self._clear_async(), exclusive=False)
 
     async def _clear_async(self) -> None:
-        self.history.clear()
+        self.history = [{"role": "system", "content": prompts.GROUNDING}]
         chat = self.query_one("#chat", VerticalScroll)
         await chat.remove_children()
         self._log_system("History cleared.")

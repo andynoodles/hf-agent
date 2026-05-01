@@ -1,0 +1,29 @@
+[
+  {
+    "model": "[gemini] gemma-4-31b-it",
+    "provider": "gemini",
+    "model_id": "gemma-4-31b-it",
+    "total": 20,
+    "passes": 19,
+    "accuracy": 0.95,
+    "elapsed_s": 206.7
+  },
+  {
+    "model": "[gemini] gemma-4-26b-a4b-it",
+    "provider": "gemini",
+    "model_id": "gemma-4-26b-a4b-it",
+    "total": 20,
+    "passes": 18,
+    "accuracy": 0.9,
+    "elapsed_s": 153.7
+  },
+  {
+    "model": "[gemini] gemini-3.1-flash-lite-preview",
+    "provider": "gemini",
+    "model_id": "gemini-3.1-flash-lite-preview",
+    "total": 20,
+    "passes": 18,
+    "accuracy": 0.9,
+    "elapsed_s": 471.1
+  }
+]

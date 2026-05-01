@@ -80,12 +80,15 @@ def _unwrap_ddg_redirect(url: str) -> str:
 )
 async def web_search(query: str) -> str:
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        resp = await client.post(
-            _DDG_URL,
-            data={"q": query},
-            headers={"User-Agent": _USER_AGENT},
-            follow_redirects=True,
-        )
+        try:
+            resp = await client.post(
+                _DDG_URL,
+                data={"q": query},
+                headers={"User-Agent": _USER_AGENT},
+                follow_redirects=True,
+            )
+        except httpx.HTTPError as e:
+            return f"web_search failed: {type(e).__name__}: {e}"
     if resp.status_code != 200:
         return f"web_search HTTP {resp.status_code}: {resp.text[:200]}"
 

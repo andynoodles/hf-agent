@@ -1,95 +1,104 @@
-# tui-chat
+# hf-agent
 
-A terminal chat UI for talking to LLMs over OpenAI-compatible and Google
-Gemini endpoints. Built on [Textual](https://textual.textualize.io/).
+A terminal agent that takes a natural-language question, picks a Hugging
+Face Hub or Datasets-Server endpoint, calls it for real, and answers
+from the response.
 
-- Streaming replies, rendered as live Markdown
-- Slash commands with inline hints and Tab-completion
-- Switch models on the fly with `/models`
-- Tool / function calling with a one-line decorator
-- A `run_shell` tool gated by an approval modal (or `/auto` to skip prompts)
-- Animated thinking indicator while the model is working
+The interface is a Textual TUI for interactive use, plus a headless
+driver (`uv run main.py "<query>"`) for the break-it harness and any
+non-interactive run.
+
+For the assignment writeup — domain choice, design decisions, Part 1
+break/harden cycle, Part 2 multi-model eval and results — see
+[`WRITEUP.md`](./WRITEUP.md).
 
 ## Setup
 
-Requires Python 3.12+ and [`uv`](https://github.com/astral-sh/uv).
+Python 3.12+, [`uv`](https://github.com/astral-sh/uv).
 
 ```bash
 uv pip install -r requirements.txt
-cp .env.example .env   # then fill in your API keys
+cp .env.example .env   # add your API keys
 uv run main.py
 ```
 
-## Configuration
-
-Edit `.env`:
+`.env`:
 
 ```ini
-# OpenAI or any OpenAI-compatible endpoint (Ollama, vLLM, OpenRouter, ...)
 OPENAI_API_KEY=
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4o-mini
-# OPENAI_MODELS=gpt-4o-mini,gpt-4o,gpt-4.1-mini   # comma-separated, optional
 
-# Google Gemini
 GEMINI_API_KEY=
-GEMINI_MODEL=gemini-2.0-flash
-# GEMINI_MODELS=gemini-2.5-flash,gemini-2.0-flash
+GEMINI_MODEL=gemma-4-31b-it
+# GEMINI_MODELS=gemma-4-31b-it,gemma-4-26b-a4b-it,gemini-3.1-flash-lite-preview
+
+HF_TOKEN=                # optional — raises rate limits, unlocks gated datasets
 ```
 
-Either provider can be left blank — the app picks up whichever keys are
-set. The `/models` picker lists every model from every configured
-provider; the first one becomes the default at startup.
+Either provider can be left blank; the app uses whichever keys are set.
 
 ## Usage
 
 Type a message and hit Enter. Slash commands:
 
-| Command   | What it does                              |
-| --------- | ----------------------------------------- |
-| `/models` | Open the model picker                     |
-| `/auto`   | Toggle auto-approve for tool calls        |
-| `/clear`  | Clear chat history                        |
-| `/help`   | List all commands                         |
-| `/quit`   | Exit                                      |
+| Command | What it does |
+|---------|--------------|
+| `/models` | Open the model picker |
+| `/tool` | List registered tools |
+| `/<tool>` | Nudge the next turn to use a specific tool (e.g. `/hf_hub_search trending diffusion models`) |
+| `/loop <goal>` | Autonomous mode: forced auto-approve, 100-round cap, doom-loop guard |
+| `/auto` | Toggle auto-approve for tool calls |
+| `/clear` | Clear chat history |
+| `/help` | List all commands |
+| `/quit` | Exit |
 
-While typing a slash command, matching commands are shown inline below
-the chat. **Tab** completes to the longest common prefix (or the full
-command if only one matches). The right-arrow / inline ghost suggestion
-also accepts the suggestion.
+`Ctrl+L` clear, `Ctrl+C` quit, `Esc` close modal, `y`/`n`/`a`
+accept/deny/approve-and-auto on tool prompts.
 
-Keybindings:
+### Headless mode
 
-- `Ctrl+L` — clear chat
-- `Ctrl+C` — quit
-- `Esc` — close any modal
-- `y` / `n` / `a` — accept / deny / approve-and-auto on tool prompts
+```bash
+uv run main.py "find me 3 popular text classification datasets on huggingface"
+uv run main.py --model gemma-4-31b-it --json "show rows 100-109 of imdb test"
+```
 
-## Tool calling
+Tools that mutate the host (`run_shell`) are dropped from the active
+tool set in headless mode — there is no human in the loop to approve
+them.
 
-The model can request tools, the app executes them, and the result is
-fed back so the model can use it. The bundled tool is `run_shell`, which
-executes a command in `/bin/sh` and returns stdout/stderr/exit code.
+## Tools
 
-**Approval flow.** By default, every shell call shows an approval modal:
+Each tool is a thin wrapper that maps named arguments onto exactly one
+HTTP call. Adding a new tool is one decorator call (see below); both
+the OpenAI and Gemini providers automatically advertise it on the
+next turn.
+
+| Tool | Maps to | Used for |
+|------|---------|----------|
+| `hf_hub_search` | `GET /api/{kind}?search=…&filter=…&sort=…` | "find models / datasets / spaces matching X" |
+| `hf_dataset_viewer` | `GET /{endpoint}?dataset=…&config=…&split=…&…` | look at the actual rows / splits / size / stats |
+| `http_get` | `GET <any url>` | escape hatch for endpoints not covered above |
+| `web_search` | DuckDuckGo HTML | discovery — "what is this dataset called on the Hub?" |
+| `run_shell` | `/bin/sh -c …` | introspection / scripting (approval-gated, denied in headless) |
+
+### Approval flow (TUI)
 
 - `y` — approve once
-- `a` — approve and switch on auto-approve mode for the rest of the
-  session (also reachable via `/auto`)
-- `n` / `Esc` — deny; the model is told the call was refused and can
-  recover
+- `a` — approve and switch on auto-approve for the rest of the session
+- `n` / `Esc` — deny; the model is told the call was refused
 
-If a command runs longer than its `timeout_seconds` (default 30), the
-process is **not** killed automatically — instead, you get a
-"⏳ command still running" prompt asking whether to keep waiting another
-window. The command is only killed if you decline.
+If a command runs longer than `timeout_seconds` (default 30), the
+process is **not** killed automatically — you get a "⏳ still running"
+prompt asking whether to keep waiting another window. The command is
+killed only if you decline.
 
 ### Adding a new tool
 
-Drop a module into `tui_chat/tools/` and decorate an async function:
+Drop a module into `hf_agent/tools/` and decorate an async function:
 
 ```python
-# tui_chat/tools/files.py
+# hf_agent/tools/files.py
 from . import tool
 
 @tool(
@@ -100,16 +109,14 @@ from . import tool
         "properties": {"path": {"type": "string"}},
         "required": ["path"],
     },
-    requires_approval=False,  # set True to gate behind the approval modal
+    requires_approval=False,
 )
 async def read_file(path: str) -> str:
     with open(path, encoding="utf-8") as f:
         return f.read()
 ```
 
-Then add the module name to `_BUILTIN_TOOLS` in
-`tui_chat/tools/__init__.py`. Both the OpenAI and Gemini providers will
-automatically advertise the tool on the next call.
+Add the module name to `_BUILTIN_TOOLS` in `hf_agent/tools/__init__.py`.
 
 A tool can also ask the user a yes/no question mid-execution by reading
 the current `ToolContext`:
@@ -129,21 +136,31 @@ async def my_tool(...) -> str:
 
 ```
 .
-├── main.py                       # entry point: load .env, run the app
+├── main.py                       # entry: load .env, TUI or headless one-shot
 ├── requirements.txt
 ├── .env / .env.example
-└── tui_chat/
+├── ASSIGNMENT.md                 # take-home prompt
+├── WRITEUP.md                    # design + Part 1/Part 2 writeup
+├── scripts/break_it.py           # 12 adversarial NL queries → transcripts/
+├── evals/                        # Part 2 — multi-model eval harness
+└── hf_agent/
     ├── app.py                    # ChatApp: layout, streaming + tool loop
+    ├── headless.py               # one-shot driver for break-it + scripted runs
     ├── config.py                 # ModelChoice, available_models()
     ├── providers.py              # OpenAI + Gemini streaming with tool events
-    ├── commands.py               # SLASH_COMMANDS registry
+    ├── commands.py               # slash command registry
     ├── command_input.py          # Input subclass with Tab-complete
-    ├── message_view.py           # Per-turn message bubble (Markdown body)
+    ├── message_view.py           # per-turn message bubble (Markdown body)
     ├── model_select.py           # /models picker modal
-    ├── approval.py               # Tool-call approval modal
-    ├── confirm.py                # Generic yes/no modal
-    ├── spinner.py                # Animated thinking spinner
+    ├── approval.py               # tool-call approval modal
+    ├── confirm.py                # generic yes/no modal
+    ├── spinner.py                # animated thinking spinner
+    ├── doom_loop.py              # repetition guard for /loop mode
     └── tools/
-        ├── __init__.py           # Tool registry + @tool decorator + ToolContext
-        └── terminal.py           # run_shell
+        ├── __init__.py           # registry + @tool decorator + ToolContext
+        ├── terminal.py           # run_shell (approval-gated)
+        ├── web_search.py         # DuckDuckGo HTML search
+        ├── http_get.py           # generic HTTP GET
+        ├── hf_hub_search.py      # Hub: models / datasets / spaces
+        └── hf_dataset_viewer.py  # Datasets Server proxy
 ```
